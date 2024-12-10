@@ -70,8 +70,8 @@ class Script:
         dir = os.path.dirname(self.filename)
         return os.path.normpath(os.path.join(dir, path))
 
-    def silence(self, milliseconds):
-        yield SilenceAction(milliseconds)
+    def rest(self, milliseconds):
+        yield RestAction(milliseconds)
 
     def images(self, enabled: bool):
         yield EnableImagesAction(enabled)
@@ -93,6 +93,9 @@ class Script:
             filename=self.filename,
             data={**self.data, 'actions': actions},
         )
+
+    def speak(self, text: str):
+        yield SpeakAction(text)
 
     def spiral(self, enabled: bool):
         yield EnableSpiralAction(enabled)
@@ -159,14 +162,24 @@ class GroupAction:
             action(screen)
 
 
-class SilenceAction:
+class RestAction:
     millis: int
 
     def __init__(self, millis: int):
         self.millis = millis
 
     def __call__(self, screen: 'Screen'):
-        screen.silence(self.millis)
+        screen.rest(self.millis)
+
+
+class SpeakAction:
+    text: str
+
+    def __init__(self, text: str):
+        self.text = text
+
+    def __call__(self, screen: 'Screen'):
+        screen.speak(self.text)
 
 
 class WordAction:

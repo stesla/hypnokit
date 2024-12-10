@@ -3,6 +3,7 @@ import os
 import sys
 
 import pygame
+import pyttsx3
 import tones
 import tones.mixer
 
@@ -33,6 +34,12 @@ TICKER_DEFAULTS = {
     'spiral': 1,
 }
 
+TTS_DEFAULTS = {
+    'voice': 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Speech\Voices\Tokens\TTS_MS_EN-US_ZIRA_11.0',  # noqa: E501,W605
+    'rate': 150,
+    'volume': 1.0,
+}
+
 
 class Screen:
     background_color: str = "black"
@@ -53,6 +60,7 @@ class Screen:
     __binaural_channel: pygame.mixer.Channel
     __images: dict[Size, Iterator[pygame.Surface]]
     __script: Script
+    __speech_engine: pyttsx3.Engine
     __spirals: dict[Size, Iterator[pygame.Surface]]
     __ticker: 'Ticker'
 
@@ -82,6 +90,7 @@ class Screen:
         self.__init_images()
         self.__init_spirals()
         self.__init_ticker()
+        self.__init_tts()
 
     def enable_binaural(self, enabled=True):
         opts = self.__script.options.get('binaural', BINAURAL_DEFAULTS)
@@ -146,7 +155,10 @@ class Screen:
         img.set_alpha(int(self.text_alpha / 2))
         self.background_text = img.convert()
 
-    def silence(self, millis: int):
+    def speak(self, text: str):
+        self.__speech_engine.say(text)
+
+    def rest(self, millis: int):
         self.__ticker.add_millis('action', millis)
 
     def __display_text(self, text, alpha=None, delay=False):
@@ -170,6 +182,11 @@ class Screen:
             pygame.display.flip()
 
     def __init_audio(self):
+        self.__speech_engine = None
+        self.__init_binaural()
+        self.__init_music()
+
+    def __init_binaural(self):
         binaural_opts = {
             **BINAURAL_DEFAULTS,
             **self.__script.options.get('binaural', {}),
@@ -183,14 +200,15 @@ class Screen:
         mixer.add_tone(1, frequency=frequency+wavelength, duration=10)
         self.__binaural = pygame.mixer.Sound(buffer=mixer.sample_data())
 
+    def __init_images(self):
+        for size in self.__sizes():
+            self.__load_images(size)
+
+    def __init_music(self):
         music_opts = self.__script.options.get('music', {})
         if 'path' in music_opts:
             path = self.__script.relative_path(music_opts['path'])
             pygame.mixer.music.load(path)
-
-    def __init_images(self):
-        for size in self.__sizes():
-            self.__load_images(size)
 
     def __init_screen(self):
         if self.fullscreen:
@@ -218,6 +236,17 @@ class Screen:
             **self.__script.options.get('ticker', {}),
         }
         self.__ticker = Ticker(**opts)
+
+    def __init_tts(self):
+        opts = {
+            **TTS_DEFAULTS,
+            **self.__script.options.get('tts', {}),
+        }
+        self.__speech_engine = pyttsx3.init()
+        self.__speech_engine.startLoop(False)
+        self.__speech_engine.setProperty('voice', opts['voice'])
+        self.__speech_engine.setProperty('volume', opts['volume'])
+        self.__speech_engine.setProperty('rate', opts['rate'])
 
     def __load_images(self, size: Size) -> None:
         if size not in self.__images:
@@ -275,6 +304,8 @@ class Screen:
         self.running = False
 
     def __render(self) -> None:
+        if self.__speech_engine.isBusy():
+            self.__speech_engine.iterate()
         self.screen.fill(self.background_color)
         if self.enable_images:
             self.__draw_surface(self.__current_image, delay=True)
@@ -309,7 +340,10 @@ class Screen:
     def __update(self, millis: int) -> None:
         self.__ticker.update(millis)
 
-        if self.__ticker.is_ready('action'):
+        if (
+            not self.__speech_engine.isBusy()
+            and self.__ticker.is_ready('action')
+        ):
             if self.__current_action:
                 self.__current_action(screen=self)
             try:
